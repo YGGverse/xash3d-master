@@ -7,7 +7,7 @@ use std::{
     cmp,
     collections::{hash_map::Entry, HashMap, HashSet},
     fmt, io,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket},
+    net::{Ipv6Addr, SocketAddr, SocketAddrV6, UdpSocket},
     process,
     time::{Duration, Instant, SystemTime},
 };
@@ -63,7 +63,7 @@ fn serialize_unix_time<S: Serializer>(time: &SystemTime, ser: S) -> Result<S::Ok
 struct ServerResult {
     #[serde(serialize_with = "serialize_unix_time")]
     time: SystemTime,
-    address: SocketAddrV4,
+    address: SocketAddrV6,
     #[serde(skip_serializing_if = "Option::is_none")]
     ping: Option<f32>,
     #[serde(flatten)]
@@ -71,7 +71,7 @@ struct ServerResult {
 }
 
 impl ServerResult {
-    fn new(address: SocketAddrV4, ping: Option<f32>, kind: ServerResultKind) -> Self {
+    fn new(address: SocketAddrV6, ping: Option<f32>, kind: ServerResultKind) -> Self {
         Self {
             time: SystemTime::now(),
             address,
@@ -80,19 +80,19 @@ impl ServerResult {
         }
     }
 
-    fn ok(address: SocketAddrV4, ping: f32, info: ServerInfo) -> Self {
+    fn ok(address: SocketAddrV6, ping: f32, info: ServerInfo) -> Self {
         Self::new(address, Some(ping), ServerResultKind::Ok { info })
     }
 
-    fn timeout(address: SocketAddrV4) -> Self {
+    fn timeout(address: SocketAddrV6) -> Self {
         Self::new(address, None, ServerResultKind::Timeout)
     }
 
-    fn protocol(address: SocketAddrV4, ping: f32) -> Self {
+    fn protocol(address: SocketAddrV6, ping: f32) -> Self {
         Self::new(address, Some(ping), ServerResultKind::Protocol)
     }
 
-    fn error<T>(address: SocketAddrV4, message: T) -> Self
+    fn error<T>(address: SocketAddrV6, message: T) -> Self
     where
         T: fmt::Display,
     {
@@ -105,7 +105,7 @@ impl ServerResult {
         )
     }
 
-    fn invalid<T>(address: SocketAddrV4, ping: f32, message: T, response: &[u8]) -> Self
+    fn invalid<T>(address: SocketAddrV6, ping: f32, message: T, response: &[u8]) -> Self
     where
         T: fmt::Display,
     {
@@ -225,7 +225,7 @@ struct ListResult<'a> {
     master_timeout: u32,
     masters: &'a [Box<str>],
     filter: &'a str,
-    servers: &'a [SocketAddrV4],
+    servers: &'a [SocketAddrV6],
 }
 
 fn serialize_colored<S>(s: &str, ser: S) -> Result<S::Ok, S::Error>
@@ -290,16 +290,16 @@ impl fmt::Display for Colored<'_> {
     }
 }
 
-fn get_socket_addrs<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Vec<SocketAddrV4>, Error> {
+fn get_socket_addrs<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Vec<SocketAddrV6>, Error> {
     use std::net::ToSocketAddrs;
 
     let mut out = Vec::with_capacity(iter.size_hint().0);
     for i in iter {
         match i
             .to_socket_addrs()?
-            .find(|i| matches!(i, SocketAddr::V4(_)))
+            .find(|i| matches!(i, SocketAddr::V6(_)))
         {
-            Some(SocketAddr::V4(addr)) => out.push(addr),
+            Some(SocketAddr::V6(addr)) => out.push(addr),
             _ => eprintln!("warn: failed to resolve address for {i}"),
         }
     }
@@ -329,7 +329,7 @@ impl ServerQuery {
 
 struct Scan<'a> {
     cli: &'a Cli,
-    masters: Vec<SocketAddrV4>,
+    masters: Vec<SocketAddrV6>,
     sock: UdpSocket,
 }
 
@@ -338,11 +338,11 @@ impl<'a> Scan<'a> {
         Ok(Self {
             cli,
             masters: get_socket_addrs(cli.masters.iter().map(|i| i.as_ref()))?,
-            sock: UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0))?,
+            sock: UdpSocket::bind(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0))?,
         })
     }
 
-    fn is_master(&self, addr: &SocketAddrV4) -> bool {
+    fn is_master(&self, addr: &SocketAddrV6) -> bool {
         self.masters.iter().any(|i| i == addr)
     }
 
@@ -350,7 +350,7 @@ impl<'a> Scan<'a> {
         let mut buf = [0; 512];
         let packet = game::QueryServers {
             region: server::Region::RestOfTheWorld,
-            last: SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
+            last: SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0)),
             filter: self.cli.filter.as_str(),
         };
         let packet = packet.encode(&mut buf)?;
@@ -360,7 +360,7 @@ impl<'a> Scan<'a> {
         Ok(())
     }
 
-    fn servers(&self) -> Result<HashSet<SocketAddrV4>, Error> {
+    fn servers(&self) -> Result<HashSet<SocketAddrV6>, Error> {
         self.query_servers()?;
 
         let mut set = HashSet::with_capacity(256);
@@ -381,14 +381,14 @@ impl<'a> Scan<'a> {
             };
 
             let from = match from {
-                SocketAddr::V4(x) => x,
+                SocketAddr::V6(x) => x,
                 _ => todo!(),
             };
 
             if self.is_master(&from) {
                 if let Ok(packet) = master::QueryServersResponse::decode(&buf[..n]) {
                     if self.check_key(&from, packet.key) {
-                        set.extend(packet.iter::<SocketAddrV4>());
+                        set.extend(packet.iter::<SocketAddrV6>());
                     }
                 } else {
                     eprintln!(
@@ -405,8 +405,8 @@ impl<'a> Scan<'a> {
 
     fn server_info(
         &self,
-        list: &[SocketAddrV4],
-    ) -> Result<HashMap<SocketAddrV4, ServerResult>, Error> {
+        list: &[SocketAddrV6],
+    ) -> Result<HashMap<SocketAddrV6, ServerResult>, Error> {
         let mut set = HashSet::new();
         let mut active = HashMap::new();
         let mut out = HashMap::new();
@@ -454,7 +454,7 @@ impl<'a> Scan<'a> {
                 },
             };
             let from = match from {
-                SocketAddr::V4(x) => x,
+                SocketAddr::V6(x) => x,
                 _ => todo!(),
             };
             let raw = &buf[..n];
@@ -526,7 +526,7 @@ impl<'a> Scan<'a> {
         Ok(out)
     }
 
-    fn check_key(&self, from: &SocketAddrV4, key: Option<u32>) -> bool {
+    fn check_key(&self, from: &SocketAddrV6, key: Option<u32>) -> bool {
         let res = match (self.cli.key, key) {
             (Some(a), Some(b)) => a == b,
             (None, None) => true,
@@ -680,8 +680,8 @@ impl Handler for Monitor<'_> {
         let info = ServerInfo::from(info);
         if self.cli.json {
             let address = match addr {
-                SocketAddr::V4(address) => address,
-                SocketAddr::V6(_) => todo!(),
+                SocketAddr::V6(address) => address,
+                SocketAddr::V4(_) => todo!(),
             };
             let result = ServerResult::ok(address, ping.as_micros() as f32 / 1000.0, info);
             println!("{}", serde_json::to_string_pretty(&result).unwrap());
@@ -706,8 +706,8 @@ impl Handler for Monitor<'_> {
     fn server_timeout(&mut self, addr: &SocketAddr) {
         if self.cli.json {
             let address = match addr {
-                SocketAddr::V4(address) => *address,
-                SocketAddr::V6(_) => todo!(),
+                SocketAddr::V6(address) => *address,
+                SocketAddr::V4(_) => todo!(),
             };
             let result = ServerResult::timeout(address);
             println!("{}", serde_json::to_string_pretty(&result).unwrap());
@@ -717,8 +717,8 @@ impl Handler for Monitor<'_> {
     fn server_remove(&mut self, addr: &SocketAddr) {
         if self.cli.json {
             let address = match addr {
-                SocketAddr::V4(address) => *address,
-                SocketAddr::V6(_) => todo!(),
+                SocketAddr::V6(address) => *address,
+                SocketAddr::V4(_) => todo!(),
             };
             let result = ServerResult::new(address, None, ServerResultKind::Remove);
             println!("{}", serde_json::to_string_pretty(&result).unwrap());
