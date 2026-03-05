@@ -111,13 +111,13 @@ impl<'a> ObserverBuilder<'a> {
     }
 
     pub fn build<T: Handler>(self, handler: T, masters: &[&str]) -> io::Result<Observer<T>> {
-        let sock = UdpSocket::bind("0.0.0.0:0")?;
+        let sock = UdpSocket::bind("[::]:0")?;
         let local_addr = sock.local_addr()?;
 
         let mut vec = Vec::with_capacity(masters.len());
         for i in masters {
             for addr in i.to_socket_addrs()? {
-                if local_addr.is_ipv4() == addr.is_ipv4() {
+                if local_addr.is_ipv6() == addr.is_ipv6() {
                     vec.push(addr);
                     break;
                 }
