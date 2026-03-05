@@ -111,7 +111,7 @@ impl<'a> ObserverBuilder<'a> {
     }
 
     pub fn build<T: Handler>(self, handler: T, masters: &[&str]) -> io::Result<Observer<T>> {
-        let sock = UdpSocket::bind("[::]:0")?;
+        let sock = UdpSocket::bind(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0))?;
         let local_addr = sock.local_addr()?;
 
         let mut vec = Vec::with_capacity(masters.len());
