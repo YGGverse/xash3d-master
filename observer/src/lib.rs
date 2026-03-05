@@ -5,7 +5,7 @@ use std::{
     cmp,
     collections::hash_map::{Entry, HashMap},
     fmt, io,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs, UdpSocket},
+    net::{Ipv6Addr, SocketAddr, SocketAddrV6, ToSocketAddrs, UdpSocket},
     time::{Duration, Instant},
 };
 
@@ -188,7 +188,7 @@ impl<T: Handler> Observer<T> {
         let mut buf = [0; 512];
         let packet = proto::game::QueryServers {
             region: proto::server::Region::RestOfTheWorld,
-            last: SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0).into(),
+            last: SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0).into(),
             filter,
         };
         let packet = packet.encode(&mut buf[..]).unwrap(); // TODO: handle error, filter may not fit
